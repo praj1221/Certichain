@@ -169,11 +169,7 @@ contract CertificateRegistry {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint64 currentTime = uint64(block.timestamp);
 
-        certificates[certHash] = Certificate({
-            issuer: msg.sender,
-            issuedAt: currentTime,
-            revoked: false
-        });
+        certificates[certHash] = Certificate({issuer: msg.sender, issuedAt: currentTime, revoked: false});
 
         emit CertificateIssued(certHash, msg.sender, currentTime);
     }
@@ -213,16 +209,7 @@ contract CertificateRegistry {
      * @return issuer The address of the institution that issued the certificate (or address(0) if not found).
      * @return issuedAt The Unix timestamp when the certificate was issued (or 0 if not found).
      */
-    function verify(bytes32 certHash)
-        external
-        view
-        returns (
-            bool exists,
-            bool valid,
-            address issuer,
-            uint64 issuedAt
-        )
-    {
+    function verify(bytes32 certHash) external view returns (bool exists, bool valid, address issuer, uint64 issuedAt) {
         Certificate memory cert = certificates[certHash];
 
         exists = (cert.issuedAt != 0);
@@ -231,5 +218,4 @@ contract CertificateRegistry {
         issuedAt = cert.issuedAt;
     }
 }
-
 
