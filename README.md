@@ -4,6 +4,8 @@
 
 CertiChain is a lightweight, tamper-proof smart contract system built with **Solidity ^0.8.24** and **Foundry**. It enables accredited educational institutions to issue and revoke cryptographically verifiable degree certificates on-chain, allowing employers, universities, and visa offices to verify academic credentials instantly without contacting the issuing institution or compromising student privacy.
 
+> Status: learning project. Deployed and tested on a local Anvil chain only. Not audited and not intended for production use.
+
 ---
 
 ## 📌 Table of Contents
@@ -11,7 +13,7 @@ CertiChain is a lightweight, tamper-proof smart contract system built with **Sol
 - [Why Blockchain vs. Traditional Database?](#-why-blockchain-vs-traditional-database)
 - [System Architecture & Actors](#-system-architecture--actors)
 - [Core Workflow](#-core-workflow)
-- [Smart Contract Design Decisions & Interview Talking Points](#-smart-contract-design-decisions--interview-talking-points)
+- [Design Decisions](#-design-decisions)
 - [Guarantees Enforced](#-guarantees-enforced)
 - [Known Limitations](#-known-limitations)
 - [Smart Contract API Reference](#-smart-contract-api-reference)
@@ -39,7 +41,7 @@ Instead of relying on slow, centralized manual checks:
 1. The accredited university generates a cryptographic hash (`keccak256` fingerprint) of the graduate's certificate.
 2. The university records this 32-byte hash on the Ethereum blockchain.
 3. Anyone receiving a certificate simply hashes the file or details and calls the contract's `verify()` function.
-4. In under a second, the verifier knows with mathematical certainty whether the document was officially issued, who issued it, when it was issued, and whether it has been revoked.
+4. In under a second, the verifier can check whether the document was officially issued, who issued it, when it was issued, and whether it has been revoked.
 
 ---
 
@@ -47,8 +49,8 @@ Instead of relying on slow, centralized manual checks:
 
 | Feature | Centralized Database (e.g. AWS RDS, PostgreSQL) | Ethereum Smart Contract (CertiChain) |
 |---|---|---|
-| **Tamper Resistance** | A database administrator or compromised server can alter records or delete logs undetected. | **Immutable**. Once written, even the contract owner cannot alter or backdate a recorded certificate. |
-| **Availability & Uptime** | Verification breaks if the university's database or API server is down or decommissioned. | **100% Uptime**. Decentralized global network; verification works 24/7 forever. |
+| **Tamper Resistance** | A database administrator or compromised server can alter records or delete logs undetected. | Records cannot be silently edited or deleted; revocation is an explicit, logged action. |
+| **Availability & Uptime** | Verification breaks if the university's database or API server is down or decommissioned. | Does not depend on a single institution's server. |
 | **Trustless Verification** | The verifier must trust the integrity of the college's server and IT staff. | **Trustless**. Rules are enforced strictly by open, auditable smart contract bytecode. |
 | **Audit Trail** | Internal database audit logs can be wiped or modified. | **Public EVM Events**. Every issuance and revocation emits timestamped events on-chain. |
 
@@ -66,7 +68,7 @@ flowchart TD
 1. **Owner (`owner`)**:
    - The address that deploys the contract (e.g., higher education consortium admin).
    - Manages authorized institutions via `addIssuer()` and `removeIssuer()`.
-   - Cannot issue certificates and cannot revoke certificates issued by institutions.
+   - Can only issue certificates if it also authorizes itself as an issuer. Cannot revoke certificates issued by other institutions.
 2. **Issuer (`isIssuer`)**:
    - An authorized educational institution (e.g., college or university wallet).
    - Can issue certificates (`issue()`) and revoke only the certificates it personally issued (`revoke()`).
@@ -103,12 +105,12 @@ sequenceDiagram
 
 ---
 
-## 💡 Smart Contract Design Decisions & Interview Talking Points
+## 💡 Design Decisions
 
 Every line of `CertificateRegistry.sol` was deliberately designed for efficiency, security, and simplicity:
 
 ### 1. Hash-Only Storage (`bytes32 certHash`)
-- **Privacy & GDPR Compliance**: Personal data (student names, grades, social security numbers) is **never** stored on a public blockchain.
+- **Privacy**: Avoids storing personal data on a public blockchain.
 - **One-Way Cryptographic Fingerprint**: A `keccak256` hash is 32 bytes fixed length. Given the hash, an attacker cannot reverse-engineer student information. Yet, if even a single character in the certificate changes, the resulting hash is completely different.
 - **Gas Efficiency**: Storing 32 bytes costs a single storage write (`SSTORE`), costing a fraction of the gas required to store dynamic strings or files.
 
@@ -122,8 +124,8 @@ struct Certificate {
 }                    // Total: 29 bytes <= 32 bytes
 ```
 - `address` (20 bytes) + `uint64` (8 bytes) + `bool` (1 byte) = **29 bytes**.
-- Because $29 \le 32$, the Solidity compiler packs the entire `Certificate` record into **one single 32-byte storage slot**.
-- This saves an entire `SSTORE` operation (saving up to 20,000 gas per issuance) and a second `SLOAD` on reads.
+- Because 29 bytes, which is at most 32, the Solidity compiler packs the entire `Certificate` record into **one single 32-byte storage slot**.
+- This saves an entire `SSTORE` operation, so issuing needs one storage write instead of several, and saves a second `SLOAD` on reads.
 - `uint64` for timestamps will not overflow until the year **584,554,051,223 AD**, making it safe.
 
 ### 3. Immutable Owner
@@ -131,7 +133,7 @@ struct Certificate {
 address public immutable owner;
 ```
 - The contract owner is established at deployment in `constructor()` and cannot be changed.
-- Marking `owner` as `immutable` bakes the address directly into the contract bytecode at compile time, completely eliminating `SLOAD` operations when evaluating the `onlyOwner` modifier (saving ~2,100 gas on cold access).
+- Marking `owner` as `immutable` bakes the address directly into the contract bytecode at compile time, so reading the owner does not need a storage read when evaluating the `onlyOwner` modifier.
 
 ### 4. Custom Errors Instead of Require Strings
 ```solidity
@@ -143,9 +145,8 @@ error NotFound();
 error NotCertificateIssuer();
 error AlreadyRevoked();
 ```
-- Prior to Solidity 0.8.4, developers used `require(condition, "Descriptive string message")`.
-- Require strings bloat contract deployment bytecode and cost substantial execution gas when reverting.
-- Custom errors encode to a compact 4-byte selector ($bytes4(keccak256("ErrorName()"))$), minimizing deployment cost and execution overhead.
+- Custom errors keep the contract smaller and reverts cheaper than long require strings.
+- Custom errors encode to a compact 4-byte selector (`bytes4(keccak256("ErrorName()"))`), minimizing deployment cost and execution overhead.
 
 ### 5. Indexed Event Topics
 ```solidity
@@ -156,14 +157,14 @@ event CertificateIssued(bytes32 indexed certHash, address indexed issuer, uint64
 
 ### 6. Zero External Dependencies (No OpenZeppelin)
 - Access control (`onlyOwner`, `onlyIssuer`) is handwritten using elementary Solidity idioms.
-- Keeps the contract self-contained, lightweight, and easy to explain line-by-line during technical interviews.
+- Keeps the contract self-contained, lightweight, and easy to read.
 
 ---
 
 ## 🛡️ Guarantees Enforced
 
 1. **Only authorized issuers can register certificates**: Enforced by the `onlyIssuer` modifier on `issue()`.
-2. **Only the original issuing institution can revoke a certificate**: University B cannot revoke degrees issued by University A. Even the contract owner cannot revoke a university's issued certificates.
+2. **Only the original issuing institution can revoke a certificate**: University B cannot revoke degrees issued by University A. The owner cannot revoke them unless the owner is that issuer.
 3. **No duplicate registrations**: Calling `issue()` with a previously registered hash reverts with `AlreadyIssued()`.
 4. **No zero-hash certificates**: Submitting `bytes32(0)` reverts with `ZeroHash()`.
 5. **No double revocation**: Revoking an already revoked certificate reverts with `AlreadyRevoked()`.
@@ -173,7 +174,7 @@ event CertificateIssued(bytes32 indexed certHash, address indexed issuer, uint64
 
 ## ⚠️ Known Limitations
 
-In an interview or production evaluation, be prepared to discuss these real-world trade-offs:
+Real-world trade-offs and considerations:
 
 1. **Proves Document Registration, Not Issuer Integrity**:
    - The contract proves that *"address X registered hash Y at timestamp Z"*.
@@ -356,7 +357,7 @@ certichain/
 │   └── DeployCertificateRegistry.s.sol    # Deployment script
 ├── foundry.toml                           # Foundry compiler & project settings
 ├── .gitignore                             # Git ignore rules for caches & keys
-└── README.md                              # Complete documentation & interview guide
+└── README.md                              # Documentation
 ```
 
 ---
