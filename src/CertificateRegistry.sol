@@ -146,5 +146,90 @@ contract CertificateRegistry {
         isIssuer[issuer] = false;
         emit IssuerRemoved(issuer);
     }
+
+    // ------------------------------------------------------------------------
+    // CERTIFICATE LIFECYCLE (ISSUE, REVOKE, VERIFY)
+    // ------------------------------------------------------------------------
+
+    /**
+     * @notice Issues a new certificate on-chain by recording its cryptographic hash.
+     * @dev Only callable by an authorized issuer (`onlyIssuer`).
+     *      Reverts if `certHash` is zero (empty) or if this certificate hash was already issued.
+     * @param certHash The keccak256 hash (fingerprint) of the certificate document or details.
+     */
+    function issue(bytes32 certHash) external onlyIssuer {
+        // Prevent registering an empty or uninitialized hash
+        if (certHash == bytes32(0)) revert ZeroHash();
+
+        // Prevent duplicate registration; issuedAt != 0 indicates the hash already exists
+        if (certificates[certHash].issuedAt != 0) revert AlreadyIssued();
+
+        // Cast block.timestamp (uint256) to uint64 for struct packing.
+        // Casting to 'uint64' is safe because block.timestamp will not exceed uint64 max (~1.84e19) for 584 billion years.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint64 currentTime = uint64(block.timestamp);
+
+        certificates[certHash] = Certificate({
+            issuer: msg.sender,
+            issuedAt: currentTime,
+            revoked: false
+        });
+
+        emit CertificateIssued(certHash, msg.sender, currentTime);
+    }
+
+    /**
+     * @notice Revokes a previously issued certificate (e.g. if cancelled, expelled, or issued in error).
+     * @dev Only the original issuer of this exact certificate can revoke it.
+     *      Reverts if the certificate does not exist, if caller is not the original issuer,
+     *      or if the certificate is already revoked.
+     * @param certHash The keccak256 hash of the certificate to revoke.
+     */
+    function revoke(bytes32 certHash) external {
+        Certificate storage cert = certificates[certHash];
+
+        // Ensure the certificate was actually issued before allowing revocation
+        if (cert.issuedAt == 0) revert NotFound();
+
+        // Access control: only the institution that issued this certificate can revoke it.
+        // Institution B cannot revoke degrees issued by Institution A.
+        if (cert.issuer != msg.sender) revert NotCertificateIssuer();
+
+        // Prevent redundant revocation calls
+        if (cert.revoked) revert AlreadyRevoked();
+
+        cert.revoked = true;
+
+        emit CertificateRevoked(certHash, msg.sender);
+    }
+
+    /**
+     * @notice Verifies whether a given certificate hash exists, is valid, and who issued it.
+     * @dev Free read-only view function accessible to anyone (employers, visa offices, students).
+     *      No transaction fee (gas) is incurred when calling via an eth_call RPC.
+     * @param certHash The keccak256 hash of the certificate to check.
+     * @return exists True if the certificate was recorded on-chain, false otherwise.
+     * @return valid True if the certificate exists and has NOT been revoked (`exists && !revoked`).
+     * @return issuer The address of the institution that issued the certificate (or address(0) if not found).
+     * @return issuedAt The Unix timestamp when the certificate was issued (or 0 if not found).
+     */
+    function verify(bytes32 certHash)
+        external
+        view
+        returns (
+            bool exists,
+            bool valid,
+            address issuer,
+            uint64 issuedAt
+        )
+    {
+        Certificate memory cert = certificates[certHash];
+
+        exists = (cert.issuedAt != 0);
+        valid = exists && !cert.revoked;
+        issuer = cert.issuer;
+        issuedAt = cert.issuedAt;
+    }
 }
+
 
