@@ -120,4 +120,31 @@ contract CertificateRegistry {
     constructor() {
         owner = msg.sender;
     }
+
+    // ------------------------------------------------------------------------
+    // ISSUER MANAGEMENT (OWNER ONLY)
+    // ------------------------------------------------------------------------
+
+    /**
+     * @notice Authorizes an institution address to issue and revoke certificates.
+     * @dev Only callable by the contract owner. Updates the `isIssuer` mapping and emits `IssuerAdded`.
+     * @param issuer The address of the institution (e.g. university wallet) to authorize.
+     */
+    function addIssuer(address issuer) external onlyOwner {
+        isIssuer[issuer] = true;
+        emit IssuerAdded(issuer);
+    }
+
+    /**
+     * @notice Revokes an institution's authorization to issue certificates.
+     * @dev Only callable by the contract owner. Updates the `isIssuer` mapping and emits `IssuerRemoved`.
+     *      NOTE: Removing an issuer prevents them from issuing new certificates, but previously
+     *      issued certificates remain valid unless individually revoked.
+     * @param issuer The address of the institution whose authorization is being removed.
+     */
+    function removeIssuer(address issuer) external onlyOwner {
+        isIssuer[issuer] = false;
+        emit IssuerRemoved(issuer);
+    }
 }
+
