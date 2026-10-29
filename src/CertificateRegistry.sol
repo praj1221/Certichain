@@ -9,6 +9,115 @@ pragma solidity ^0.8.24;
  *      storing sensitive personal information.
  */
 contract CertificateRegistry {
-    // Stage 1: Empty Contract Skeleton
-    // State variables, custom errors, events, and functions will be added in upcoming stages.
+    // ------------------------------------------------------------------------
+    // STORAGE & STRUCTS
+    // ------------------------------------------------------------------------
+
+    /**
+     * @dev Structure representing a single academic certificate record.
+     *
+     * WHY STRUCT PACKING?
+     * Storage slots on Ethereum are 32 bytes (256 bits).
+     * - address: 20 bytes (160 bits)
+     * - uint64:   8 bytes ( 64 bits) -> sufficient for timestamps for billions of years
+     * - bool:     1 byte  (  8 bits)
+     * Total: 20 + 8 + 1 = 29 bytes <= 32 bytes.
+     * All three fields pack together into a single 32-byte storage slot, saving
+     * significant SSTORE gas when issuing and SLOAD gas when reading.
+     */
+    struct Certificate {
+        address issuer;
+        uint64 issuedAt;
+        bool revoked;
+    }
+
+    /**
+     * @notice The deployer / administrator of this registry contract.
+     *
+     * WHY IMMUTABLE?
+     * The owner is fixed at deployment and cannot be changed. Marking it `immutable`
+     * bakes the address directly into the contract bytecode at construction time,
+     * avoiding an expensive SLOAD (storage read) opcode on every access.
+     */
+    address public immutable owner;
+
+    /**
+     * @notice Tracks whether an address is an authorized certificate issuer (e.g. university).
+     */
+    mapping(address => bool) public isIssuer;
+
+    /**
+     * @dev Maps a cryptographic certificate hash (bytes32) to its on-chain Certificate record.
+     *
+     * WHY HASH-ONLY STORAGE (bytes32)?
+     * Storing personal data (names, grades, transcripts) on a public blockchain violates
+     * data privacy and GDPR, and is expensive in gas. A 32-byte cryptographic hash (keccak256)
+     * acts as a one-way fingerprint: cheap to store, impossible to reverse into student data,
+     * yet tamper-proof because any change in the source document yields a completely different hash.
+     */
+    mapping(bytes32 => Certificate) private certificates;
+
+    // ------------------------------------------------------------------------
+    // CUSTOM ERRORS
+    // ------------------------------------------------------------------------
+
+    /**
+     * WHY CUSTOM ERRORS INSTEAD OF REQUIRE STRINGS?
+     * In Solidity 0.8.4+, custom errors compile to a 4-byte selector (e.g. bytes4(keccak256("NotOwner()"))).
+     * Older `require(condition, "Not Owner")` patterns store and return long ASCII strings,
+     * which increases deployment bytecode size and costs significantly more gas on revert.
+     */
+    error NotOwner();
+    error NotIssuer();
+    error ZeroHash();
+    error AlreadyIssued();
+    error NotFound();
+    error NotCertificateIssuer();
+    error AlreadyRevoked();
+
+    // ------------------------------------------------------------------------
+    // EVENTS
+    // ------------------------------------------------------------------------
+
+    /**
+     * WHY INDEXED EVENT PARAMETERS?
+     * Ethereum event logs allow up to 3 `indexed` parameters, which become searchable "topics".
+     * Verifiers and off-chain indexers (like The Graph or Etherscan) can filter events
+     * directly by `issuer` or `certHash` without downloading and scanning all transaction logs.
+     */
+    event IssuerAdded(address indexed issuer);
+    event IssuerRemoved(address indexed issuer);
+    event CertificateIssued(bytes32 indexed certHash, address indexed issuer, uint64 issuedAt);
+    event CertificateRevoked(bytes32 indexed certHash, address indexed issuer);
+
+    // ------------------------------------------------------------------------
+    // MODIFIERS
+    // ------------------------------------------------------------------------
+
+    /**
+     * @dev Restricts access to the contract owner.
+     */
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    /**
+     * @dev Restricts access to authorized issuers.
+     */
+    modifier onlyIssuer() {
+        if (!isIssuer[msg.sender]) revert NotIssuer();
+        _;
+    }
+
+    // ------------------------------------------------------------------------
+    // CONSTRUCTOR
+    // ------------------------------------------------------------------------
+
+    /**
+     * @notice Initializes the contract and sets the deployer as immutable owner.
+     */
+    constructor() {
+        owner = msg.sender;
+    }
 }
