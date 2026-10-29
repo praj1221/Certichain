@@ -2,19 +2,18 @@
 cache/
 out/
 
-# Commonly ignored directories
-.logs/
-.ignore/
+# Broadcast & deployment logs
+broadcast/
 
-# Ignores development broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
+# Dependency directories
+node_modules/
 
-# Docs
-docs/
-
-# Dotenv file
+# Dotenv files & secrets
 .env
 .env.*
 !.env.example
+
+# Commonly ignored directories
+.logs/
+.ignore/
+docs/
