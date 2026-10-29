@@ -2,7 +2,7 @@
 
 **Academic Credential Verification on Ethereum**
 
-CertiChain is a lightweight, tamper-proof smart contract system built with **Solidity ^0.8.24** and **Foundry**. It enables accredited educational institutions to issue and revoke cryptographically verifiable degree certificates on-chain, allowing employers, universities, and visa offices to verify academic credentials instantly without contacting the issuing institution or compromising student privacy.
+CertiChain is a lightweight smart contract system built with **Solidity ^0.8.24** and **Foundry**. It enables accredited educational institutions to issue and revoke cryptographically verifiable degree certificates on-chain, allowing employers, universities, and visa offices to verify academic credentials instantly without contacting the issuing institution or compromising student privacy.
 
 > Status: learning project. Deployed and tested on a local Anvil chain only. Not audited and not intended for production use.
 
@@ -51,7 +51,7 @@ Instead of relying on slow, centralized manual checks:
 |---|---|---|
 | **Tamper Resistance** | A database administrator or compromised server can alter records or delete logs undetected. | Records cannot be silently edited or deleted; revocation is an explicit, logged action. |
 | **Availability & Uptime** | Verification breaks if the university's database or API server is down or decommissioned. | Does not depend on a single institution's server. |
-| **Trustless Verification** | The verifier must trust the integrity of the college's server and IT staff. | **Trustless**. Rules are enforced strictly by open, auditable smart contract bytecode. |
+| **Trustless Verification** | The verifier must trust the integrity of the college's server and IT staff. | Rules are enforced by public, auditable contract code. |
 | **Audit Trail** | Internal database audit logs can be wiped or modified. | **Public EVM Events**. Every issuance and revocation emits timestamped events on-chain. |
 
 ---
@@ -176,18 +176,13 @@ event CertificateIssued(bytes32 indexed certHash, address indexed issuer, uint64
 
 Real-world trade-offs and considerations:
 
-1. **Proves Document Registration, Not Issuer Integrity**:
-   - The contract proves that *"address X registered hash Y at timestamp Z"*.
-   - It does not prove that address X is an accredited university in the real world. A trust layer (such as the contract owner curating reputable issuers or verifiable legal entity identifiers) is required.
-2. **Public Hashes & Guessable Inputs (Rainbow Attacks)**:
-   - Since hashes are visible on-chain, if a certificate contains predictable text (e.g. `Alice, Degree: CS, Year: 2026`), an attacker could precompute hashes for common student names to check who graduated.
-   - **Mitigation**: Off-chain certificate generators should append a random cryptographic salt (nonce/secret entropy) before hashing (e.g. `keccak256(certificateData + secretSalt)`).
-3. **Identity Binding**:
-   - The contract verifies the certificate's authenticity, but does not verify that the person presenting the certificate is indeed the person named on it. Combining this with Decentralized Identifiers (DIDs) or biometric proofs would be required for full identity resolution.
-4. **Production Scalability & Gas**:
-   - On Ethereum Mainnet (L1), gas fees for writing storage can be high. In production, CertiChain would ideally deploy on an Ethereum Layer-2 rollup (such as Arbitrum, Optimism, or Base) where transactions cost fractions of a cent.
-5. **Key Management**:
-   - If a university loses access to its private key, it cannot revoke previously issued certificates or issue new ones under that address. Production setups should use multi-signature contracts (e.g., Safe) with institutional key rotation.
+1. **Proves registration, not trustworthiness**: the contract shows that address X registered hash Y at time Z, not that X is a real accredited institution. The owner decides who becomes an issuer.
+2. **Guessable inputs**: hashes are public. If a certificate is built from predictable text (name, degree, year), someone could hash guesses and check them. A secret salt added before hashing would mitigate this.
+3. **Hash squatting**: any authorized issuer can register any hash first, including one another institution would register.
+4. **Removed issuers**: removing an issuer stops new issuance, but their existing certificates stay valid and they can still revoke them.
+5. **Single owner**: no ownership transfer or recovery. Losing the owner key means no new issuers can be added. addIssuer also does not reject the zero address.
+6. **No identity binding**: the contract verifies a document, not that the person presenting it is the person named on it.
+7. **Local only**: tested and deployed on a local Anvil chain. Mainnet gas costs, key management and a user interface are out of scope.
 
 ---
 
@@ -287,6 +282,8 @@ forge coverage
    ```
 
 2. **Deploy the contract using `DeployCertificateRegistry.s.sol`**:
+
+   The private key below is Anvil's well-known public test key. Never use it on a real network.
    ```bash
    forge script script/DeployCertificateRegistry.s.sol:DeployCertificateRegistry \
      --rpc-url http://127.0.0.1:8545 \
@@ -300,6 +297,7 @@ forge coverage
 
 Once deployed, interact with the contract directly from your terminal using `cast`:
 
+The commands below use bash syntax. In PowerShell, set variables with `$CONTRACT = "..."` and use `$CONTRACT` instead of `export`.
 ```bash
 # Set environment variables for convenience
 export CONTRACT="0x5FbDB2315678afecb367f032d93F642f64180aa3"
