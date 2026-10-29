@@ -27,3 +27,4 @@ contract DeployCertificateRegistry is Script {
         vm.stopBroadcast();
     }
 }
+
